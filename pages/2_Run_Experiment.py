@@ -1,7 +1,7 @@
 """
 pages/2_🔬_Run_Experiment.py
 Org-signal discovery pipeline — SerpApi + Apollo People Search + Enrichment.
-No IRS cross-referencing. No database writes (testing mode).
+No IRS cross-referencing. Results persisted to Supabase.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -14,10 +14,14 @@ from utils.serper_client import run_discovery, SerperAuthError
 from utils.apollo_client import search_people_by_company, enrich_person
 from utils.data_loader import build_serp_queries, build_apollo_params
 from utils.metrics_calc import compute_metrics
+from utils.supabase_client import (
+    get_or_create_client, create_session, complete_session,
+    save_funder_result, save_contacts,
+)
 
 st.set_page_config(page_title="Run Experiment", page_icon="🔬", layout="wide")
 st.title("🔬 Run Experiment")
-st.caption("Org-signal discovery — SerpApi + Apollo, no IRS cross-referencing")
+st.caption("Org-signal discovery — SerpApi + Apollo · Results saved to Supabase")
 
 # ─── Prerequisites ────────────────────────────────────────────────────────────
 errors = []
@@ -109,6 +113,19 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
     overall_start    = time.time()
     credits_used     = 0
     all_funder_stats = []
+
+    # ── Create Supabase session ────────────────────────────────────────────
+    sb, _ = get_or_create_client()
+    session_id = None
+    if sb:
+        from datetime import datetime, timezone
+        session_id = create_session(
+            sb,
+            total_funders=len(funders_to_run),
+            notes=f"Run at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        )
+        if session_id:
+            st.session_state["active_session_id"] = session_id
 
     progress_bar          = st.progress(0, text="Starting experiment...")
     status_placeholder    = st.empty()
@@ -250,6 +267,11 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
         st.session_state["experiment_results"][ein] = funder_stat
         all_funder_stats.append(funder_stat)
 
+        # ── Save to Supabase ───────────────────────────────────────────────
+        if sb and session_id:
+            save_funder_result(sb, session_id, funder_stat)
+            save_contacts(sb, session_id, ein, org_name, all_profiles)
+
         # ── Live table ─────────────────────────────────────────────────────
         if all_funder_stats:
             preview_df = pd.DataFrame([
@@ -269,6 +291,9 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
     progress_bar.progress(1.0, text="✅ Experiment complete!")
     st.session_state["experiment_running"] = False
     st.session_state["experiment_done"]    = True
+
+    if sb and session_id:
+        complete_session(sb, session_id, len(all_funder_stats))
 
     total_elapsed = time.time() - overall_start
     status_placeholder.empty()
