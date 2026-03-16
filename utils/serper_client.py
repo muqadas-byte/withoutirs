@@ -4,7 +4,8 @@ SerpApi discovery using org-level signals only (no IRS names).
 Queries are built by data_loader.build_serp_queries().
 """
 import requests
-import re
+
+from utils.data_loader import is_excluded_title
 
 SERP_ENDPOINT = "https://serpapi.com/search"
 
@@ -35,21 +36,22 @@ def _extract_linkedin_profiles_from_results(organic: list) -> list[dict]:
         link = item.get("link", "")
         if "linkedin.com/in/" not in link:
             continue
-        # Normalise URL — strip query params
         clean_url = link.split("?")[0].rstrip("/")
         if clean_url in seen:
             continue
         seen.add(clean_url)
 
-        # Try to pull name + title from the snippet / title
         title_text = item.get("title", "")
         snippet = item.get("snippet", "")
 
-        # LinkedIn titles look like: "John Smith - Executive Director - Acme Foundation"
+        # LinkedIn titles: "John Smith - Executive Director - Acme Foundation"
         parts = [p.strip() for p in title_text.split(" - ")]
         person_name = parts[0] if parts else ""
         current_title = parts[1] if len(parts) > 1 else ""
         current_company = parts[2] if len(parts) > 2 else ""
+
+        if is_excluded_title(current_title):
+            continue
 
         profiles.append({
             "person_name": person_name,
@@ -98,7 +100,7 @@ def run_discovery(
                     "api_key": api_key,
                     "q": q["query"],
                     "engine": "google",
-                    "num": 10,
+                    "num": 20,
                     "hl": "en",
                     "gl": "us",
                 },

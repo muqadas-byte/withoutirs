@@ -120,14 +120,15 @@ if selected_ein:
             if show_grant_only else contacts
 
         for person in display_contacts:
-            name      = person.get("person_name") or "Unknown"
-            title     = person.get("current_title") or ""
-            company   = person.get("current_company") or ""
-            linkedin  = person.get("linkedin_url") or ""
-            photo_url = person.get("photo_url") or ""
-            enriched  = person.get("enriched", False)
-            grant_rel = person.get("is_grant_relevant", False)
-            source    = person.get("source", "")
+            name       = person.get("person_name") or "Unknown"
+            title      = person.get("current_title") or ""
+            company    = person.get("current_company") or ""
+            linkedin   = person.get("linkedin_url") or ""
+            photo_url  = person.get("photo_url") or ""
+            enriched   = person.get("enriched", False)
+            grant_rel  = person.get("is_grant_relevant", False)
+            source     = person.get("source", "")
+            match_score = person.get("company_match_score", 0)
 
             with st.container():
                 col_photo, col_a, col_b, col_c = st.columns([1, 3, 3, 2])
@@ -147,6 +148,10 @@ if selected_ein:
                     if grant_rel:
                         st.caption("🎯 Grant-relevant role")
                 with col_c:
+                    if match_score >= 90:
+                        st.caption(f"Match: {match_score}%")
+                    elif match_score >= 60:
+                        st.caption(f"Match: {match_score}%")
                     if enriched:
                         st.caption("✓ Enriched")
                     if linkedin:
@@ -157,7 +162,8 @@ if selected_ein:
 
         # Per-funder CSV
         export_cols = ["person_name", "current_title", "current_company",
-                       "linkedin_url", "source", "enriched", "is_grant_relevant"]
+                       "linkedin_url", "source", "enriched", "is_grant_relevant",
+                       "company_match_score"]
         st.download_button(
             f"📥 Download {selected_name[:30]}_contacts.csv",
             data=pd.DataFrame([{c: p.get(c, "") for c in export_cols} for p in contacts]).to_csv(index=False),

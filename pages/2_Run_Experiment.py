@@ -1,7 +1,7 @@
 """
 pages/2_🔬_Run_Experiment.py
 Org-signal discovery pipeline — SerpApi + Apollo People Search + Enrichment.
-No IRS cross-referencing. Results persisted to Supabase.
+Results persisted to Supabase.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -12,7 +12,7 @@ import pandas as pd
 
 from utils.serper_client import run_discovery, SerperAuthError
 from utils.apollo_client import search_people_by_company, enrich_person
-from utils.data_loader import build_serp_queries, build_apollo_params
+from utils.data_loader import build_serp_queries, build_apollo_params, is_excluded_title
 from utils.metrics_calc import compute_metrics
 from utils.supabase_client import (
     get_or_create_client, create_session, complete_session,
@@ -21,7 +21,7 @@ from utils.supabase_client import (
 
 st.set_page_config(page_title="Run Experiment", page_icon="🔬", layout="wide")
 st.title("🔬 Run Experiment")
-st.caption("Org-signal discovery — SerpApi + Apollo · Results saved to Supabase")
+st.caption("SerpApi + Apollo discovery · Results saved to Supabase")
 
 # ─── Prerequisites ────────────────────────────────────────────────────────────
 errors = []
@@ -35,14 +35,14 @@ if errors:
         st.error(f"⛔ {e}")
     st.stop()
 
-funders          = st.session_state["funders"]
-serpapi_key      = st.session_state["serpapi_key"]
+funders           = st.session_state["funders"]
+serpapi_key       = st.session_state["serpapi_key"]
 apollo_search_key = st.session_state.get("apollo_search_key", "")
-apollo_match_key = st.session_state.get("apollo_match_key", "")
-enrich_enabled   = st.session_state.get("enrich_enabled", True)
-max_funders      = st.session_state.get("max_funders", 100)
-enrich_budget    = st.session_state.get("enrich_budget", 100)
-max_contacts     = st.session_state.get("max_contacts_per_funder", 10)
+apollo_match_key  = st.session_state.get("apollo_match_key", "")
+enrich_enabled    = st.session_state.get("enrich_enabled", True)
+max_funders       = st.session_state.get("max_funders", 100)
+enrich_budget     = st.session_state.get("enrich_budget", 100)
+max_contacts      = st.session_state.get("max_contacts_per_funder", 10)
 
 # ─── Settings summary ─────────────────────────────────────────────────────────
 with st.expander("⚙️ Current Settings", expanded=False):
@@ -88,18 +88,18 @@ else:
     funders_to_run = funders[:max_funders]
 
 # ─── Pre-flight summary ───────────────────────────────────────────────────────
-total_queries_estimate = len(funders_to_run) * 5  # avg 5 queries per funder
+total_queries_estimate = len(funders_to_run) * 5
 cost_estimate = total_queries_estimate * 0.001
 has_domain  = sum(1 for f in funders_to_run if f.get("domain"))
 has_location = sum(1 for f in funders_to_run if f.get("city") and f.get("state"))
 
 st.subheader("📋 Pre-flight Summary")
 pf1, pf2, pf3, pf4, pf5 = st.columns(5)
-pf1.metric("Funders",             len(funders_to_run))
-pf2.metric("With Domain",         has_domain)
-pf3.metric("With City/State",     has_location)
+pf1.metric("Funders",              len(funders_to_run))
+pf2.metric("With Domain",          has_domain)
+pf3.metric("With City/State",      has_location)
 pf4.metric("Est. SerpApi Queries", f"~{total_queries_estimate:,}")
-pf5.metric("Est. Cost",           f"~${cost_estimate:.2f}")
+pf5.metric("Est. Cost",            f"~${cost_estimate:.2f}")
 
 st.divider()
 
@@ -127,10 +127,10 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
         if session_id:
             st.session_state["active_session_id"] = session_id
 
-    progress_bar          = st.progress(0, text="Starting experiment...")
-    status_placeholder    = st.empty()
+    progress_bar           = st.progress(0, text="Starting experiment...")
+    status_placeholder     = st.empty()
     live_table_placeholder = st.empty()
-    error_log_placeholder = st.empty()
+    error_log_placeholder  = st.empty()
 
     serper_auth_failed = False
 
@@ -176,6 +176,8 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
                 api_errors.append({"step": "serper", "error": f"UNEXPECTED: {str(e)}"})
 
         for p in serper_profiles:
+            if is_excluded_title(p.get("current_title", "")):
+                continue
             url = p.get("linkedin_url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
@@ -191,7 +193,7 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
                 apollo_result = search_people_by_company(
                     search_key=apollo_search_key,
                     apollo_params=apollo_params,
-                    size=max_contacts,
+                    size=max(max_contacts * 3, 30),
                 )
                 apollo_profiles = apollo_result.get("profiles", [])
                 if apollo_result.get("error"):
@@ -200,12 +202,14 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
                 api_errors.append({"step": "apollo_search", "error": f"UNEXPECTED: {str(e)}"})
 
         for p in apollo_profiles:
+            if is_excluded_title(p.get("current_title", "")):
+                continue
             url = p.get("linkedin_url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
                 all_profiles.append(p)
             elif not url:
-                all_profiles.append(p)  # keep profileless Apollo hits too
+                all_profiles.append(p)
 
         # ── Apollo Enrichment ──────────────────────────────────────────────
         enrichments_done = 0
@@ -213,11 +217,11 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
             enrich_candidates = [
                 p for p in all_profiles if p.get("linkedin_url") and not p.get("enriched")
             ]
-            for p in enrich_candidates[:20]:  # cap at 20 per funder
+            for p in enrich_candidates[:max_contacts]:
                 if credits_used >= enrich_budget:
                     break
                 with status_placeholder.container():
-                    st.caption(f"⚡ [{idx+1}/{len(funders_to_run)}] Enriching: {p['linkedin_url'][-40:]}")
+                    st.caption(f"⚡ [{idx+1}/{len(funders_to_run)}] Enriching: {p.get('person_name', '')}")
 
                 enrich_res = enrich_person(apollo_match_key, p["linkedin_url"])
                 if enrich_res.get("error"):
@@ -226,7 +230,6 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
                     if "AUTH_ERROR" in err_msg or "CREDITS_EXHAUSTED" in err_msg:
                         break
                 elif enrich_res.get("found") and enrich_res.get("profile"):
-                    # Replace the basic profile with the enriched one
                     enriched_profile = enrich_res["profile"]
                     url = p["linkedin_url"]
                     all_profiles = [enriched_profile if q.get("linkedin_url") == url else q
@@ -242,26 +245,26 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
         all_profiles = all_profiles[:max_contacts]
 
         # ── Build result ───────────────────────────────────────────────────
-        discovered_count  = len(all_profiles)
-        grant_rel_count   = sum(1 for p in all_profiles if p.get("is_grant_relevant"))
-        processing_ms     = int((time.time() - funder_start) * 1000)
+        discovered_count = len(all_profiles)
+        grant_rel_count  = sum(1 for p in all_profiles if p.get("is_grant_relevant"))
+        processing_ms    = int((time.time() - funder_start) * 1000)
 
         funder_stat = {
-            "ein":                  ein,
-            "org_name":             org_name,
-            "segment":              funder.get("segment"),
-            "city":                 funder.get("city"),
-            "state":                funder.get("state"),
-            "domain":               funder.get("domain"),
-            "discovered_count":     discovered_count,
-            "grant_relevant_count": grant_rel_count,
-            "serper_queries_run":   len(queries),
-            "serper_urls_found":    len(serper_profiles),
+            "ein":                   ein,
+            "org_name":              org_name,
+            "segment":               funder.get("segment"),
+            "city":                  funder.get("city"),
+            "state":                 funder.get("state"),
+            "domain":                funder.get("domain"),
+            "discovered_count":      discovered_count,
+            "grant_relevant_count":  grant_rel_count,
+            "serper_queries_run":    len(queries),
+            "serper_urls_found":     len(serper_profiles),
             "apollo_profiles_found": len(apollo_profiles),
-            "enrichments_done":     enrichments_done,
-            "api_errors":           api_errors,
-            "contacts":             all_profiles,  # renamed from merged_staff
-            "processing_ms":        processing_ms,
+            "enrichments_done":      enrichments_done,
+            "api_errors":            api_errors,
+            "contacts":              all_profiles,
+            "processing_ms":         processing_ms,
         }
 
         st.session_state["experiment_results"][ein] = funder_stat
@@ -276,12 +279,14 @@ if st.button("🚀 Start Experiment", type="primary", use_container_width=True,
         if all_funder_stats:
             preview_df = pd.DataFrame([
                 {
-                    "Org":        r["org_name"][:40],
-                    "Segment":    r["segment"],
-                    "Discovered": r["discovered_count"],
+                    "Org":          r["org_name"][:40],
+                    "Segment":      r["segment"],
+                    "Discovered":   r["discovered_count"],
                     "🎯 Grant Rel": r["grant_relevant_count"],
-                    "Queries":    r["serper_queries_run"],
-                    "Errors":     len(r["api_errors"]),
+                    "Serper":       r["serper_urls_found"],
+                    "Apollo":       r["apollo_profiles_found"],
+                    "Enriched":     r["enrichments_done"],
+                    "Errors":       len(r["api_errors"]),
                 }
                 for r in all_funder_stats[-15:]
             ])
