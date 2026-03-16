@@ -62,22 +62,19 @@ CREATE TABLE IF NOT EXISTS funder_results (
 );
 
 CREATE TABLE IF NOT EXISTS contacts (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id          UUID REFERENCES experiment_sessions(id) ON DELETE CASCADE,
-  ein                 TEXT NOT NULL,
-  org_name            TEXT,
-  person_name         TEXT,
-  current_title       TEXT,
-  current_company     TEXT,
-  linkedin_url        TEXT,
-  photo_url           TEXT,
-  source              TEXT,
-  enriched            BOOLEAN DEFAULT FALSE,
-  is_grant_relevant   BOOLEAN DEFAULT FALSE,
-  company_match       BOOLEAN DEFAULT TRUE,
-  company_match_score INTEGER DEFAULT 0,
-  excluded_reason     TEXT,
-  created_at          TIMESTAMPTZ DEFAULT NOW()
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id        UUID REFERENCES experiment_sessions(id) ON DELETE CASCADE,
+  ein               TEXT NOT NULL,
+  org_name          TEXT,
+  person_name       TEXT,
+  current_title     TEXT,
+  current_company   TEXT,
+  linkedin_url      TEXT,
+  photo_url         TEXT,
+  source            TEXT,
+  enriched          BOOLEAN DEFAULT FALSE,
+  is_grant_relevant BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_funder_results_session ON funder_results(session_id);
@@ -140,20 +137,17 @@ def save_contacts(sb, session_id: str, ein: str, org_name: str, contacts: list):
         return
     try:
         rows = [{
-            "session_id":          session_id,
-            "ein":                 ein,
-            "org_name":            org_name,
-            "person_name":         p.get("person_name"),
-            "current_title":       p.get("current_title"),
-            "current_company":     p.get("current_company"),
-            "linkedin_url":        p.get("linkedin_url"),
-            "photo_url":           p.get("photo_url"),
-            "source":              p.get("source"),
-            "enriched":            p.get("enriched", False),
-            "is_grant_relevant":   p.get("is_grant_relevant", False),
-            "company_match":       p.get("company_match", True),
-            "company_match_score": p.get("company_match_score", 0),
-            "excluded_reason":     p.get("excluded_reason"),
+            "session_id":        session_id,
+            "ein":               ein,
+            "org_name":          org_name,
+            "person_name":       p.get("person_name"),
+            "current_title":     p.get("current_title"),
+            "current_company":   p.get("current_company"),
+            "linkedin_url":      p.get("linkedin_url"),
+            "photo_url":         p.get("photo_url"),
+            "source":            p.get("source"),
+            "enriched":          p.get("enriched", False),
+            "is_grant_relevant": p.get("is_grant_relevant", False),
         } for p in contacts]
         sb.table("contacts").insert(rows).execute()
     except Exception as e:
